@@ -1,7 +1,8 @@
 BINARY=simon-jp-api
 BUILD_DIR=bin
+MIGRATIONS_DIR=internal/db/migrations
 
-.PHONY: help run build build-prod clean compose-up compose-down compose-clean
+.PHONY: help run build build-prod clean compose-up compose-down compose-clean migrate-up migrate-down migrate-create
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -28,3 +29,12 @@ compose-down: ## Stop docker compose services
 
 compose-clean: ## Stop docker compose services and remove all volumes
 	docker compose down -v
+
+migrate-up: ## Apply all migrations
+	go run ./cmd/migrate up
+
+migrate-down: ## Rollback the last migration
+	go run ./cmd/migrate down
+
+migrate-create: ## Create a new migration: make migrate-create NAME=add_users
+	goose -dir $(MIGRATIONS_DIR) create $(NAME) sql

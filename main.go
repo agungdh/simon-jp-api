@@ -1,20 +1,67 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"simon-jp-api/internal/config"
+	"simon-jp-api/internal/db"
+	"simon-jp-api/internal/httpapi"
+	"simon-jp-api/internal/repository"
+	"simon-jp-api/internal/service"
 )
 
-// TIP <p>To run your code, right-click the code and select <b>Run</b>.</p> <p>Alternatively, click
-// the <icon src="AllIcons.Actions.Execute"/> icon in the gutter and select the <b>Run</b> menu item from here.</p>
 func main() {
-	//TIP <p>Press <shortcut actionId="ShowIntentionActions"/> when your caret is at the underlined text
-	// to see how GoLand suggests fixing the warning.</p><p>Alternatively, if available, click the lightbulb to view possible fixes.</p>
-	s := "gopher"
-	fmt.Printf("Hello and welcome, %s!\n", s)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	for i := 1; i <= 5; i++ {
-		//TIP <p>To start your debugging session, right-click your code in the editor and select the Debug option.</p> <p>We have set one <icon src="AllIcons.Debugger.Db_set_breakpoint"/> breakpoint
-		// for you, but you can always add more by pressing <shortcut actionId="ToggleLineBreakpoint"/>.</p>
-		fmt.Println("i =", 100/i)
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+
+	bunDB, err := db.Connect(cfg.DBURL)
+	if err != nil {
+		log.Fatalf("connect postgres: %v", err)
+	}
+	defer db.Close(context.Background(), bunDB)
+
+	if err := db.Migrate(ctx, bunDB); err != nil {
+		log.Fatalf("migrate: %v", err)
+	}
+
+	redisClient, err := db.ConnectRedis(ctx, cfg.RedisAddr, cfg.RedisPass, cfg.RedisDB)
+	if err != nil {
+		log.Fatalf("connect redis: %v", err)
+	}
+	defer redisClient.Close()
+
+	userRepo := repository.NewUserRepository(bunDB)
+	sessionStore := service.NewSessionStore(redisClient, cfg.SessionTTL)
+	authService := service.NewAuthService(userRepo, sessionStore)
+
+	srv := &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: httpapi.NewRouter(authService),
+	}
+
+	go func() {
+		log.Printf("server listening on %s", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen and serve: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("server shutdown: %v", err)
 	}
 }
