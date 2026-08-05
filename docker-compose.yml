@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: simonjp-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: simonjp
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
+  valkey:
+    image: valkey/valkey:latest
+    container_name: simonjp-valkey
+    restart: always
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - valkey-data:/data
+
+  adminer:
+    image: adminer:latest
+    container_name: simonjp-adminer
+    restart: always
+    ports:
+      - "127.0.0.1:8083:8080"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres-data:
+  valkey-data:
