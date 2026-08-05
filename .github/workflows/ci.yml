@@ -21,7 +21,13 @@ jobs:
         with:
           go-version: "1.26"
       - run: go vet ./...
-      - run: go build -o simon-jp-api .
+      - run: go build -o dist/simon-jp-api ./cmd/api
+      - run: go build -o dist/simon-jp-worker ./cmd/worker
+      - run: go build -o dist/simon-jp-scheduler ./cmd/scheduler
+      - uses: actions/upload-artifact@v5
+        with:
+          name: binaries
+          path: dist/
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -31,11 +37,14 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
-      - run: CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o simon-jp-api .
+      - run: mkdir -p dist
+      - run: CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o dist/simon-jp-api ./cmd/api
+      - run: CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o dist/simon-jp-worker ./cmd/worker
+      - run: CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o dist/simon-jp-scheduler ./cmd/scheduler
       - uses: actions/upload-artifact@v5
         with:
-          name: simon-jp-api
-          path: simon-jp-api
+          name: binaries
+          path: dist/
       - uses: softprops/action-gh-release@v2
         with:
-          files: simon-jp-api
+          files: dist/*

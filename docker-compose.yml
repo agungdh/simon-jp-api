@@ -21,6 +21,16 @@ services:
     volumes:
       - valkey-data:/data
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: simonjp-rabbitmq
+    restart: always
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
   adminer:
     image: adminer:latest
     container_name: simonjp-adminer
@@ -37,3 +47,4 @@ services:
 volumes:
   postgres-data:
   valkey-data:
+  rabbitmq-data:

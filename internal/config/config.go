@@ -9,12 +9,15 @@ import (
 )
 
 type Config struct {
-	DBURL      string        `env:"DB_URL"`
-	RedisAddr  string        `env:"REDIS_ADDR"`
-	RedisPass  string        `env:"REDIS_PASSWORD"`
-	RedisDB    int           `env:"REDIS_DB" envDefault:"0"`
-	Port       string        `env:"PORT" envDefault:"8080"`
-	SessionTTL time.Duration `env:"SESSION_TTL" envDefault:"24h"`
+	DBURL        string        `env:"DB_URL"`
+	RedisAddr    string        `env:"REDIS_ADDR"`
+	RedisPass    string        `env:"REDIS_PASSWORD"`
+	RedisDB      int           `env:"REDIS_DB" envDefault:"0"`
+	Port         string        `env:"PORT" envDefault:"8080"`
+	SessionTTL   time.Duration `env:"SESSION_TTL" envDefault:"24h"`
+	MQURL        string        `env:"MQ_URL"`
+	MQQueue      string        `env:"MQ_QUEUE" envDefault:"jobs"`
+	PingSchedule string        `env:"PING_SCHEDULE" envDefault:"@every 1m"`
 }
 
 func Load() (*Config, error) {
@@ -23,6 +26,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		DBURL:     "postgres://admin:admin@localhost:5432/simonjp?sslmode=disable",
 		RedisAddr: "localhost:6379",
+		MQURL:     "amqp://guest:guest@localhost:5672/",
 	}
 
 	if err := env.Parse(cfg); err != nil {
