@@ -39,3 +39,15 @@ func (r *UserRepository) FindByID(ctx context.Context, id int64) (*models.User, 
 	}
 	return &user, nil
 }
+
+func (r *UserRepository) FindByUUID(ctx context.Context, uuid string) (*models.User, error) {
+	var user models.User
+	err := r.db.NewSelect().
+		Model(&user).
+		Where("uuid = ?", uuid).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
