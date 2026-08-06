@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,26 +14,36 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		slog.Error("load config", "error", err)
+		os.Exit(1)
 	}
 
-	client, err := mq.Connect(ctx, cfg.MQURL, cfg.MQQueue)
+	client, err := mq.Connect(ctx, cfg.MQURL, cfg.MQQueue, mq.Options{
+		Prefetch:   cfg.MQPrefetch,
+		Consumers:  cfg.MQConsumers,
+		MaxRetries: cfg.MQMaxRetries,
+	})
 	if err != nil {
-		log.Fatalf("connect mq: %v", err)
+		slog.Error("connect mq", "error", err)
+		os.Exit(1)
 	}
 	defer client.Close()
 
 	registry := worker.NewRegistry()
 	registry.Register(pingHandler{})
 
-	log.Printf("worker listening on queue %q", cfg.MQQueue)
-	if err := client.Consume(ctx, registry.Dispatch); err != nil {
-		log.Fatalf("consume: %v", err)
+	slog.Info("worker listening", "queue", cfg.MQQueue, "consumers", cfg.MQConsumers)
+	if err := client.Consume(ctx, registry.Dispatch); err != nil && ctx.Err() == nil {
+		slog.Error("consume", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -42,6 +52,6 @@ type pingHandler struct{}
 func (pingHandler) Type() string { return "ping" }
 
 func (pingHandler) Handle(_ context.Context, data json.RawMessage) error {
-	log.Printf("worker: received ping job: %s", data)
+	slog.Info("received ping job", "data", string(data))
 	return nil
 }

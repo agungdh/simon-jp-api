@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"simon-jp-api/internal/mq"
 )
@@ -28,7 +29,11 @@ func (r *Registry) Register(handler Handler) {
 func (r *Registry) Dispatch(ctx context.Context, msg mq.Message) error {
 	handler, ok := r.handlers[msg.Type]
 	if !ok {
-		return fmt.Errorf("no handler registered for type %q", msg.Type)
+		slog.Warn("no handler for message type, dropping", "type", msg.Type)
+		return nil
 	}
-	return handler.Handle(ctx, msg.Data)
+	if err := handler.Handle(ctx, msg.Data); err != nil {
+		return fmt.Errorf("handler %s: %w", msg.Type, err)
+	}
+	return nil
 }

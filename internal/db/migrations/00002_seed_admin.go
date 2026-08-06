@@ -3,6 +3,7 @@ package migrations
 import (
 	"context"
 	"database/sql"
+	"os"
 
 	"github.com/pressly/goose/v3"
 	"golang.org/x/crypto/bcrypt"
@@ -13,7 +14,12 @@ func init() {
 }
 
 func upSeedAdmin(ctx context.Context, tx *sql.Tx) error {
-	hash, err := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+	password := os.Getenv("ADMIN_PASSWORD")
+	if password == "" {
+		password = "admin123"
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}

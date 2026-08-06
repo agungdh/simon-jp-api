@@ -11,7 +11,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"simon-jp-api/internal/models"
-	"simon-jp-api/internal/repository"
 )
 
 var (
@@ -20,24 +19,41 @@ var (
 	ErrSessionNotFound    = errors.New("session not found")
 )
 
-type AuthService struct {
-	users   *repository.UserRepository
-	session *SessionStore
+type UserStore interface {
+	FindByUsername(ctx context.Context, username string) (*models.User, error)
+	FindByID(ctx context.Context, id int64) (*models.User, error)
 }
 
-func NewAuthService(users *repository.UserRepository, session *SessionStore) *AuthService {
-	return &AuthService{users: users, session: session}
+type AuthService struct {
+	users    UserStore
+	session  SessionStore
+	throttle Throttler
+}
+
+func NewAuthService(users UserStore, session SessionStore, throttle Throttler) *AuthService {
+	return &AuthService{users: users, session: session, throttle: throttle}
 }
 
 func (s *AuthService) Login(ctx context.Context, username, password string) (string, time.Duration, error) {
+	key := "login:" + username
+	if err := s.throttle.Check(ctx, key); err != nil {
+		return "", 0, err
+	}
+
 	user, err := s.users.FindByUsername(ctx, username)
 	if err != nil {
+		dummyHash, _ := bcrypt.GenerateFromPassword([]byte("dummy"), bcrypt.MinCost)
+		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
+		_ = s.throttle.RecordFailure(ctx, key)
 		return "", 0, ErrInvalidCredentials
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		_ = s.throttle.RecordFailure(ctx, key)
 		return "", 0, ErrInvalidCredentials
 	}
+
+	_ = s.throttle.Reset(ctx, key)
 
 	token, err := generateToken()
 	if err != nil {
@@ -58,7 +74,7 @@ func (s *AuthService) Logout(ctx context.Context, token string) error {
 	return s.session.Delete(ctx, token)
 }
 
-func (s *AuthService) Me(ctx context.Context, token string) (*models.User, error) {
+func (s *AuthService) Authenticate(ctx context.Context, token string) (*models.User, error) {
 	userID, err := s.session.Get(ctx, token)
 	if err != nil {
 		return nil, ErrInvalidToken
@@ -66,10 +82,14 @@ func (s *AuthService) Me(ctx context.Context, token string) (*models.User, error
 
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("find user: %w", err)
+		return nil, ErrInvalidToken
 	}
 
 	return user, nil
+}
+
+func (s *AuthService) Me(ctx context.Context, token string) (*models.User, error) {
+	return s.Authenticate(ctx, token)
 }
 
 func generateToken() (string, error) {

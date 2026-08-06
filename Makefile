@@ -4,7 +4,7 @@ SCHEDULER_BINARY=simon-jp-scheduler
 BUILD_DIR=bin
 MIGRATIONS_DIR=internal/db/migrations
 
-.PHONY: help run run-api run-worker run-scheduler clean-start build build-api build-worker build-scheduler build-prod build-api-prod build-worker-prod build-scheduler-prod clean compose-up compose-down compose-clean wait-db migrate-up migrate-down migrate-create
+.PHONY: help run run-api run-worker run-scheduler clean-start build build-api build-worker build-scheduler build-prod build-api-prod build-worker-prod build-scheduler-prod clean compose-up compose-down compose-clean wait-db migrate-up migrate-down migrate-create test vet
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -69,3 +69,9 @@ migrate-down: ## Rollback the last migration
 
 migrate-create: ## Create a new migration: make migrate-create NAME=add_users
 	goose -dir $(MIGRATIONS_DIR) create $(NAME) sql
+
+test: ## Run all tests
+	go test ./...
+
+vet: ## Run go vet
+	go vet ./...

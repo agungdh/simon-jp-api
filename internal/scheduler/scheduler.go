@@ -3,6 +3,8 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/robfig/cron/v3"
 )
@@ -12,18 +14,27 @@ type Runner interface {
 }
 
 type Scheduler struct {
-	cron *cron.Cron
+	cron    *cron.Cron
+	timeout time.Duration
 }
 
-func New() *Scheduler {
+func New(timeout time.Duration) *Scheduler {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
 	return &Scheduler{
-		cron: cron.New(),
+		cron:    cron.New(),
+		timeout: timeout,
 	}
 }
 
 func (s *Scheduler) Register(schedule string, job Runner) error {
 	if _, err := s.cron.AddFunc(schedule, func() {
-		_ = job.Run(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+		defer cancel()
+		if err := job.Run(ctx); err != nil {
+			slog.Error("scheduled job failed", "error", err)
+		}
 	}); err != nil {
 		return fmt.Errorf("register job %q: %w", schedule, err)
 	}

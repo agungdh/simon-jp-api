@@ -4,16 +4,33 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 )
 
-func Connect(dsn string) (*bun.DB, error) {
+type Config struct {
+	MaxOpenConns int
+	MaxIdleConns int
+	ConnMaxLife  time.Duration
+}
+
+func Connect(dsn string, cfg Config) (*bun.DB, error) {
 	sqlDB, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+
+	if cfg.MaxOpenConns > 0 {
+		sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	}
+	if cfg.MaxIdleConns > 0 {
+		sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	}
+	if cfg.ConnMaxLife > 0 {
+		sqlDB.SetConnMaxLifetime(cfg.ConnMaxLife)
 	}
 
 	if err := sqlDB.Ping(); err != nil {

@@ -9,12 +9,38 @@ import (
 	"simon-jp-api/internal/service"
 )
 
+const maxBodyBytes = 1 << 20
+
 type AuthHandler struct {
 	auth *service.AuthService
 }
 
 func NewAuthHandler(auth *service.AuthService) *AuthHandler {
 	return &AuthHandler{auth: auth}
+}
+
+func (h *AuthHandler) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token := bearerToken(r)
+			if token == "" {
+				writeError(w, http.StatusUnauthorized, "missing token")
+				return
+			}
+
+			user, err := h.auth.Authenticate(r.Context(), token)
+			if err != nil {
+				if errors.Is(err, service.ErrInvalidToken) {
+					writeError(w, http.StatusUnauthorized, "invalid token")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, "internal server error")
+				return
+			}
+
+			next.ServeHTTP(w, withAuth(r, user, token))
+		})
+	}
 }
 
 type loginRequest struct {
@@ -28,6 +54,8 @@ type loginResponse struct {
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -40,25 +68,24 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	token, ttl, err := h.auth.Login(r.Context(), req.Username, req.Password)
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidCredentials) {
+		switch {
+		case errors.Is(err, service.ErrTooManyAttempts):
+			writeError(w, http.StatusTooManyRequests, "too many login attempts, try again later")
+			return
+		case errors.Is(err, service.ErrInvalidCredentials):
 			writeError(w, http.StatusUnauthorized, "invalid username or password")
 			return
+		default:
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal server error")
-		return
 	}
 
 	writeJSON(w, http.StatusOK, loginResponse{Token: token, ExpiresIn: int64(ttl.Seconds())})
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	token := bearerToken(r)
-	if token == "" {
-		writeError(w, http.StatusUnauthorized, "missing token")
-		return
-	}
-
-	if err := h.auth.Logout(r.Context(), token); err != nil {
+	if err := h.auth.Logout(r.Context(), tokenFrom(r)); err != nil {
 		if errors.Is(err, service.ErrInvalidToken) {
 			writeError(w, http.StatusUnauthorized, "invalid token")
 			return
@@ -71,23 +98,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	token := bearerToken(r)
-	if token == "" {
-		writeError(w, http.StatusUnauthorized, "missing token")
-		return
-	}
-
-	user, err := h.auth.Me(r.Context(), token)
-	if err != nil {
-		if errors.Is(err, service.ErrInvalidToken) {
-			writeError(w, http.StatusUnauthorized, "invalid token")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal server error")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, user)
+	writeJSON(w, http.StatusOK, userFrom(r))
 }
 
 func bearerToken(r *http.Request) string {

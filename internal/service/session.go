@@ -10,21 +10,28 @@ import (
 
 const sessionKeyPrefix = "session:"
 
-type SessionStore struct {
+type SessionStore interface {
+	Create(ctx context.Context, token string, userID int64) error
+	Get(ctx context.Context, token string) (int64, error)
+	Delete(ctx context.Context, token string) error
+	TTL() time.Duration
+}
+
+type RedisSessionStore struct {
 	client *redis.Client
 	ttl    time.Duration
 }
 
-func NewSessionStore(client *redis.Client, ttl time.Duration) *SessionStore {
-	return &SessionStore{client: client, ttl: ttl}
+func NewSessionStore(client *redis.Client, ttl time.Duration) *RedisSessionStore {
+	return &RedisSessionStore{client: client, ttl: ttl}
 }
 
-func (s *SessionStore) Create(ctx context.Context, token string, userID int64) error {
+func (s *RedisSessionStore) Create(ctx context.Context, token string, userID int64) error {
 	key := sessionKeyPrefix + token
 	return s.client.Set(ctx, key, userID, s.ttl).Err()
 }
 
-func (s *SessionStore) Get(ctx context.Context, token string) (int64, error) {
+func (s *RedisSessionStore) Get(ctx context.Context, token string) (int64, error) {
 	key := sessionKeyPrefix + token
 	val, err := s.client.Get(ctx, key).Int64()
 	if err == redis.Nil {
@@ -36,11 +43,11 @@ func (s *SessionStore) Get(ctx context.Context, token string) (int64, error) {
 	return val, nil
 }
 
-func (s *SessionStore) Delete(ctx context.Context, token string) error {
+func (s *RedisSessionStore) Delete(ctx context.Context, token string) error {
 	key := sessionKeyPrefix + token
 	return s.client.Del(ctx, key).Err()
 }
 
-func (s *SessionStore) TTL() time.Duration {
+func (s *RedisSessionStore) TTL() time.Duration {
 	return s.ttl
 }

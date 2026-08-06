@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,30 +13,40 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		slog.Error("load config", "error", err)
+		os.Exit(1)
 	}
 
-	client, err := mq.Connect(ctx, cfg.MQURL, cfg.MQQueue)
+	client, err := mq.Connect(ctx, cfg.MQURL, cfg.MQQueue, mq.Options{
+		Prefetch:   cfg.MQPrefetch,
+		Consumers:  cfg.MQConsumers,
+		MaxRetries: cfg.MQMaxRetries,
+	})
 	if err != nil {
-		log.Fatalf("connect mq: %v", err)
+		slog.Error("connect mq", "error", err)
+		os.Exit(1)
 	}
 	defer client.Close()
 
-	sch := scheduler.New()
+	sch := scheduler.New(cfg.JobTimeout)
 
 	if err := sch.Register(cfg.PingSchedule, scheduler.NewPingJob(client)); err != nil {
-		log.Fatalf("register jobs: %v", err)
+		slog.Error("register jobs", "error", err)
+		os.Exit(1)
 	}
 
 	sch.Start()
 	defer sch.Stop()
 
-	log.Printf("scheduler started (ping on %q)", cfg.PingSchedule)
+	slog.Info("scheduler started", "ping_schedule", cfg.PingSchedule)
 
 	<-ctx.Done()
 }

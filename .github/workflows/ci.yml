@@ -27,6 +27,7 @@ jobs:
           until docker compose exec -T postgres pg_isready -U admin -d simonjp >/dev/null 2>&1; do sleep 1; done
       - name: Test migrations
         run: go run ./cmd/migrate up
+      - run: go test ./...
       - run: go vet ./...
       - run: go build -o dist/simon-jp-api ./cmd/api
       - run: go build -o dist/simon-jp-worker ./cmd/worker
