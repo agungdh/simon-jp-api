@@ -24,20 +24,32 @@ type UserStore interface {
 	FindByID(ctx context.Context, id int64) (*models.User, error)
 }
 
+type PegawaiStore interface {
+	FindByUserID(ctx context.Context, userID int64) (*models.Pegawai, error)
+}
+
+type LoginResult struct {
+	Token     string
+	ExpiresIn time.Duration
+	User      *models.User
+	Pegawai   *models.Pegawai
+}
+
 type AuthService struct {
 	users    UserStore
+	pegawai  PegawaiStore
 	session  SessionStore
 	throttle Throttler
 }
 
-func NewAuthService(users UserStore, session SessionStore, throttle Throttler) *AuthService {
-	return &AuthService{users: users, session: session, throttle: throttle}
+func NewAuthService(users UserStore, pegawai PegawaiStore, session SessionStore, throttle Throttler) *AuthService {
+	return &AuthService{users: users, pegawai: pegawai, session: session, throttle: throttle}
 }
 
-func (s *AuthService) Login(ctx context.Context, username, password string) (string, time.Duration, error) {
+func (s *AuthService) Login(ctx context.Context, username, password string) (*LoginResult, error) {
 	key := "login:" + username
 	if err := s.throttle.Check(ctx, key); err != nil {
-		return "", 0, err
+		return nil, err
 	}
 
 	user, err := s.users.FindByUsername(ctx, username)
@@ -45,26 +57,33 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (str
 		dummyHash, _ := bcrypt.GenerateFromPassword([]byte("dummy"), bcrypt.MinCost)
 		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 		_ = s.throttle.RecordFailure(ctx, key)
-		return "", 0, ErrInvalidCredentials
+		return nil, ErrInvalidCredentials
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		_ = s.throttle.RecordFailure(ctx, key)
-		return "", 0, ErrInvalidCredentials
+		return nil, ErrInvalidCredentials
 	}
 
 	_ = s.throttle.Reset(ctx, key)
 
 	token, err := generateToken()
 	if err != nil {
-		return "", 0, fmt.Errorf("generate token: %w", err)
+		return nil, fmt.Errorf("generate token: %w", err)
 	}
 
 	if err := s.session.Create(ctx, token, user.ID); err != nil {
-		return "", 0, fmt.Errorf("create session: %w", err)
+		return nil, fmt.Errorf("create session: %w", err)
 	}
 
-	return token, s.session.TTL(), nil
+	pegawai, _ := s.pegawai.FindByUserID(ctx, user.ID)
+
+	return &LoginResult{
+		Token:     token,
+		ExpiresIn: s.session.TTL(),
+		User:      user,
+		Pegawai:   pegawai,
+	}, nil
 }
 
 func (s *AuthService) Logout(ctx context.Context, token string) error {
@@ -88,8 +107,12 @@ func (s *AuthService) Authenticate(ctx context.Context, token string) (*models.U
 	return user, nil
 }
 
-func (s *AuthService) Me(ctx context.Context, token string) (*models.User, error) {
-	return s.Authenticate(ctx, token)
+func (s *AuthService) Pegawai(ctx context.Context, userID int64) (*models.Pegawai, error) {
+	pegawai, err := s.pegawai.FindByUserID(ctx, userID)
+	if err != nil {
+		return nil, nil
+	}
+	return pegawai, nil
 }
 
 func generateToken() (string, error) {

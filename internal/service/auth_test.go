@@ -93,6 +93,18 @@ func newTestUser(username, password string) *models.User {
 	}
 }
 
+type fakePegawaiStore struct {
+	byUser map[int64]*models.Pegawai
+}
+
+func (f *fakePegawaiStore) FindByUserID(_ context.Context, userID int64) (*models.Pegawai, error) {
+	p, ok := f.byUser[userID]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return p, nil
+}
+
 func newTestAuth(t *testing.T) (*AuthService, *fakeUserStore, *fakeSessionStore, *fakeThrottler) {
 	t.Helper()
 	user := newTestUser("alice", "secret")
@@ -100,25 +112,34 @@ func newTestAuth(t *testing.T) (*AuthService, *fakeUserStore, *fakeSessionStore,
 		byUsername: map[string]*models.User{"alice": user},
 		byID:       map[int64]*models.User{user.ID: user},
 	}
+	pegawai := &fakePegawaiStore{byUser: map[int64]*models.Pegawai{
+		user.ID: {BaseID: models.BaseID{UUID: "22222222-2222-2222-2222-222222222222"}, Nama: "Alice"},
+	}}
 	sessions := &fakeSessionStore{sessions: make(map[string]int64), ttl: time.Hour}
 	throttle := &fakeThrottler{failures: make(map[string]int), locked: make(map[string]bool), maxAttempts: 5}
-	return NewAuthService(users, sessions, throttle), users, sessions, throttle
+	return NewAuthService(users, pegawai, sessions, throttle), users, sessions, throttle
 }
 
 func TestLoginSuccess(t *testing.T) {
 	auth, _, sessions, throttle := newTestAuth(t)
 
-	token, ttl, err := auth.Login(context.Background(), "alice", "secret")
+	res, err := auth.Login(context.Background(), "alice", "secret")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
-	if token == "" {
+	if res.Token == "" {
 		t.Fatal("Login: expected non-empty token")
 	}
-	if ttl != time.Hour {
-		t.Fatalf("Login: ttl = %v, want %v", ttl, time.Hour)
+	if res.ExpiresIn != time.Hour {
+		t.Fatalf("Login: ttl = %v, want %v", res.ExpiresIn, time.Hour)
 	}
-	if _, ok := sessions.sessions[token]; !ok {
+	if res.User == nil || res.User.Username != "alice" {
+		t.Fatal("Login: user missing")
+	}
+	if res.Pegawai == nil || res.Pegawai.Nama != "Alice" {
+		t.Fatal("Login: pegawai profile missing")
+	}
+	if _, ok := sessions.sessions[res.Token]; !ok {
 		t.Fatal("Login: session not created")
 	}
 	if len(throttle.failures) != 0 {
@@ -129,7 +150,7 @@ func TestLoginSuccess(t *testing.T) {
 func TestLoginWrongPassword(t *testing.T) {
 	auth, _, _, throttle := newTestAuth(t)
 
-	_, _, err := auth.Login(context.Background(), "alice", "wrong")
+	_, err := auth.Login(context.Background(), "alice", "wrong")
 	if !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Login: err = %v, want ErrInvalidCredentials", err)
 	}
@@ -141,7 +162,7 @@ func TestLoginWrongPassword(t *testing.T) {
 func TestLoginUnknownUser(t *testing.T) {
 	auth, _, _, throttle := newTestAuth(t)
 
-	_, _, err := auth.Login(context.Background(), "nobody", "secret")
+	_, err := auth.Login(context.Background(), "nobody", "secret")
 	if !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Login: err = %v, want ErrInvalidCredentials", err)
 	}
@@ -154,7 +175,7 @@ func TestLoginLocked(t *testing.T) {
 	auth, _, _, throttle := newTestAuth(t)
 	throttle.locked["login:alice"] = true
 
-	_, _, err := auth.Login(context.Background(), "alice", "secret")
+	_, err := auth.Login(context.Background(), "alice", "secret")
 	if !errors.Is(err, ErrTooManyAttempts) {
 		t.Fatalf("Login: err = %v, want ErrTooManyAttempts", err)
 	}
@@ -168,7 +189,7 @@ func TestLoginLockedAfterMaxAttempts(t *testing.T) {
 		_ = throttle.RecordFailure(context.Background(), key)
 	}
 
-	_, _, err := auth.Login(context.Background(), "alice", "secret")
+	_, err := auth.Login(context.Background(), "alice", "secret")
 	if !errors.Is(err, ErrTooManyAttempts) {
 		t.Fatalf("Login: err = %v, want ErrTooManyAttempts after max failures", err)
 	}
@@ -177,9 +198,9 @@ func TestLoginLockedAfterMaxAttempts(t *testing.T) {
 func TestAuthenticate(t *testing.T) {
 	auth, _, _, _ := newTestAuth(t)
 	ctx := context.Background()
-	token, _, _ := auth.Login(ctx, "alice", "secret")
+	res, _ := auth.Login(ctx, "alice", "secret")
 
-	user, err := auth.Authenticate(ctx, token)
+	user, err := auth.Authenticate(ctx, res.Token)
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -200,12 +221,12 @@ func TestAuthenticateInvalidToken(t *testing.T) {
 func TestLogout(t *testing.T) {
 	auth, _, sessions, _ := newTestAuth(t)
 	ctx := context.Background()
-	token, _, _ := auth.Login(ctx, "alice", "secret")
+	res, _ := auth.Login(ctx, "alice", "secret")
 
-	if err := auth.Logout(ctx, token); err != nil {
+	if err := auth.Logout(ctx, res.Token); err != nil {
 		t.Fatalf("Logout: %v", err)
 	}
-	if _, ok := sessions.sessions[token]; ok {
+	if _, ok := sessions.sessions[res.Token]; ok {
 		t.Fatal("Logout: session still present")
 	}
 }

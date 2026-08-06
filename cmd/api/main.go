@@ -56,13 +56,31 @@ func main() {
 	defer redisClient.Close()
 
 	userRepo := repository.NewUserRepository(bunDB)
+	pegawaiRepo := repository.NewPegawaiRepository(bunDB)
+	diklatRepo := repository.NewDiklatRepository(bunDB)
+	ppmRepo := repository.NewPpmRepository(bunDB)
+	activityRepo := repository.NewActivityRepository(bunDB)
+	materiPpmRepo := repository.NewMateriPpmRepository(bunDB)
+	capaianRepo := repository.NewCapaianRepository(bunDB)
+
 	sessionStore := service.NewSessionStore(redisClient, cfg.SessionTTL)
 	throttle := service.NewThrottle(redisClient, cfg.LoginMaxAttempt, cfg.LoginLockoutTTL)
-	authService := service.NewAuthService(userRepo, sessionStore, throttle)
+	authService := service.NewAuthService(userRepo, pegawaiRepo, sessionStore, throttle)
+
+	deps := httpapi.Deps{
+		Auth:      authService,
+		Dashboard: service.NewDashboardService(pegawaiRepo, capaianRepo),
+		Pegawai:   service.NewPegawaiService(pegawaiRepo),
+		Diklat:    service.NewDiklatService(diklatRepo),
+		Ppm:       service.NewPpmService(ppmRepo),
+		Activity:  service.NewActivityService(activityRepo),
+		MateriPpm: service.NewMateriPpmService(materiPpmRepo),
+		Download:  service.NewDownloadService(diklatRepo, activityRepo, cfg.StorageDir),
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           httpapi.NewRouter(authService, logger),
+		Handler:           httpapi.NewRouter(deps, logger),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

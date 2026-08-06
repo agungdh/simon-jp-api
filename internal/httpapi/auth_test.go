@@ -77,6 +77,18 @@ func (f *testThrottler) Check(_ context.Context, key string) error {
 func (f *testThrottler) RecordFailure(_ context.Context, _ string) error { return nil }
 func (f *testThrottler) Reset(_ context.Context, _ string) error         { return nil }
 
+type testPegawaiStore struct {
+	byUser map[int64]*models.Pegawai
+}
+
+func (f *testPegawaiStore) FindByUserID(_ context.Context, userID int64) (*models.Pegawai, error) {
+	p, ok := f.byUser[userID]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return p, nil
+}
+
 func newTestRouter(t *testing.T) (http.Handler, *testSessionStore) {
 	t.Helper()
 	hash, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
@@ -84,17 +96,21 @@ func newTestRouter(t *testing.T) (http.Handler, *testSessionStore) {
 		BaseID:   models.BaseID{ID: 1, UUID: "11111111-1111-1111-1111-111111111111"},
 		Username: "alice",
 		Password: string(hash),
+		Role:     "pegawai",
 	}
 	users := &testUserStore{
 		byUsername: map[string]*models.User{"alice": user},
 		byID:       map[int64]*models.User{user.ID: user},
 	}
+	pegawai := &testPegawaiStore{byUser: map[int64]*models.Pegawai{
+		user.ID: {BaseID: models.BaseID{UUID: "22222222-2222-2222-2222-222222222222"}, Nama: "Alice"},
+	}}
 	sessions := &testSessionStore{sessions: make(map[string]int64), ttl: time.Hour}
 	throttle := &testThrottler{locked: make(map[string]bool)}
-	auth := service.NewAuthService(users, sessions, throttle)
+	auth := service.NewAuthService(users, pegawai, sessions, throttle)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewRouter(auth, logger), sessions
+	return NewRouter(Deps{Auth: auth}, logger), sessions
 }
 
 func doRequest(t *testing.T, handler http.Handler, method, path, body, token string) *httptest.ResponseRecorder {
@@ -114,7 +130,7 @@ func doRequest(t *testing.T, handler http.Handler, method, path, body, token str
 
 func TestLoginHandlerSuccess(t *testing.T) {
 	handler, _ := newTestRouter(t)
-	rec := doRequest(t, handler, http.MethodPost, "/api/v1/auth/login",
+	rec := doRequest(t, handler, http.MethodPost, "/api/login",
 		`{"username":"alice","password":"secret"}`, "")
 
 	if rec.Code != http.StatusOK {
@@ -127,7 +143,7 @@ func TestLoginHandlerSuccess(t *testing.T) {
 
 func TestLoginHandlerInvalidCredentials(t *testing.T) {
 	handler, _ := newTestRouter(t)
-	rec := doRequest(t, handler, http.MethodPost, "/api/v1/auth/login",
+	rec := doRequest(t, handler, http.MethodPost, "/api/login",
 		`{"username":"alice","password":"wrong"}`, "")
 
 	if rec.Code != http.StatusUnauthorized {
@@ -137,7 +153,7 @@ func TestLoginHandlerInvalidCredentials(t *testing.T) {
 
 func TestLoginHandlerBadRequest(t *testing.T) {
 	handler, _ := newTestRouter(t)
-	rec := doRequest(t, handler, http.MethodPost, "/api/v1/auth/login", `not-json`, "")
+	rec := doRequest(t, handler, http.MethodPost, "/api/login", `not-json`, "")
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
@@ -146,7 +162,7 @@ func TestLoginHandlerBadRequest(t *testing.T) {
 
 func TestLoginHandlerMissingFields(t *testing.T) {
 	handler, _ := newTestRouter(t)
-	rec := doRequest(t, handler, http.MethodPost, "/api/v1/auth/login", `{"username":""}`, "")
+	rec := doRequest(t, handler, http.MethodPost, "/api/login", `{"username":""}`, "")
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
@@ -159,18 +175,20 @@ func TestLoginHandlerLocked(t *testing.T) {
 		BaseID:   models.BaseID{ID: 1, UUID: "11111111-1111-1111-1111-111111111111"},
 		Username: "alice",
 		Password: string(hash),
+		Role:     "pegawai",
 	}
 	users := &testUserStore{
 		byUsername: map[string]*models.User{"alice": user},
 		byID:       map[int64]*models.User{user.ID: user},
 	}
+	pegawai := &testPegawaiStore{byUser: map[int64]*models.Pegawai{user.ID: {Nama: "Alice"}}}
 	sessions := &testSessionStore{sessions: make(map[string]int64), ttl: time.Hour}
 	throttle := &testThrottler{locked: map[string]bool{"login:alice": true}}
-	auth := service.NewAuthService(users, sessions, throttle)
+	auth := service.NewAuthService(users, pegawai, sessions, throttle)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler := NewRouter(auth, logger)
+	handler := NewRouter(Deps{Auth: auth}, logger)
 
-	rec := doRequest(t, handler, http.MethodPost, "/api/v1/auth/login",
+	rec := doRequest(t, handler, http.MethodPost, "/api/login",
 		`{"username":"alice","password":"secret"}`, "")
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429; body=%s", rec.Code, rec.Body.String())
@@ -179,7 +197,7 @@ func TestLoginHandlerLocked(t *testing.T) {
 
 func TestMeHandler(t *testing.T) {
 	handler, sessions := newTestRouter(t)
-	login := doRequest(t, handler, http.MethodPost, "/api/v1/auth/login",
+	login := doRequest(t, handler, http.MethodPost, "/api/login",
 		`{"username":"alice","password":"secret"}`, "")
 	if login.Code != http.StatusOK {
 		t.Fatalf("login failed: %d", login.Code)
@@ -193,7 +211,7 @@ func TestMeHandler(t *testing.T) {
 		break
 	}
 
-	rec := doRequest(t, handler, http.MethodGet, "/api/v1/auth/me", "", token)
+	rec := doRequest(t, handler, http.MethodGet, "/api/user", "", token)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
@@ -201,7 +219,7 @@ func TestMeHandler(t *testing.T) {
 
 func TestMeHandlerNoToken(t *testing.T) {
 	handler, _ := newTestRouter(t)
-	rec := doRequest(t, handler, http.MethodGet, "/api/v1/auth/me", "", "")
+	rec := doRequest(t, handler, http.MethodGet, "/api/user", "", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
 	}
@@ -209,7 +227,7 @@ func TestMeHandlerNoToken(t *testing.T) {
 
 func TestLogoutHandler(t *testing.T) {
 	handler, sessions := newTestRouter(t)
-	doRequest(t, handler, http.MethodPost, "/api/v1/auth/login",
+	doRequest(t, handler, http.MethodPost, "/api/login",
 		`{"username":"alice","password":"secret"}`, "")
 
 	token := ""
@@ -218,7 +236,7 @@ func TestLogoutHandler(t *testing.T) {
 		break
 	}
 
-	rec := doRequest(t, handler, http.MethodPost, "/api/v1/auth/logout", "", token)
+	rec := doRequest(t, handler, http.MethodPost, "/api/logout", "", token)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}

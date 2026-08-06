@@ -16,17 +16,24 @@ type contextKey int
 const (
 	userContextKey contextKey = iota
 	tokenContextKey
+	pegawaiContextKey
 )
 
-func withAuth(r *http.Request, user *models.User, token string) *http.Request {
+func withAuth(r *http.Request, user *models.User, pegawai *models.Pegawai, token string) *http.Request {
 	ctx := context.WithValue(r.Context(), userContextKey, user)
 	ctx = context.WithValue(ctx, tokenContextKey, token)
+	ctx = context.WithValue(ctx, pegawaiContextKey, pegawai)
 	return r.WithContext(ctx)
 }
 
 func userFrom(r *http.Request) *models.User {
 	user, _ := r.Context().Value(userContextKey).(*models.User)
 	return user
+}
+
+func pegawaiFrom(r *http.Request) *models.Pegawai {
+	pegawai, _ := r.Context().Value(pegawaiContextKey).(*models.Pegawai)
+	return pegawai
 }
 
 func tokenFrom(r *http.Request) string {

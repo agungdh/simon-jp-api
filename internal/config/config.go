@@ -29,6 +29,7 @@ type Config struct {
 	MQMaxRetries    int           `env:"MQ_MAX_RETRIES" envDefault:"5"`
 	PingSchedule    string        `env:"PING_SCHEDULE" envDefault:"@every 1m"`
 	JobTimeout      time.Duration `env:"JOB_TIMEOUT" envDefault:"30s"`
+	StorageDir      string        `env:"STORAGE_DIR" envDefault:"./storage"`
 }
 
 func Load() (*Config, error) {

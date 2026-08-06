@@ -38,7 +38,9 @@ func (h *AuthHandler) Middleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			next.ServeHTTP(w, withAuth(r, user, token))
+			pegawai, _ := h.auth.Pegawai(r.Context(), user.ID)
+
+			next.ServeHTTP(w, withAuth(r, user, pegawai, token))
 		})
 	}
 }
@@ -49,8 +51,9 @@ type loginRequest struct {
 }
 
 type loginResponse struct {
-	Token     string `json:"token"`
-	ExpiresIn int64  `json:"expires_in"`
+	Token     string       `json:"token"`
+	ExpiresIn int64        `json:"expires_in"`
+	User      userResponse `json:"user"`
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +69,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, ttl, err := h.auth.Login(r.Context(), req.Username, req.Password)
+	result, err := h.auth.Login(r.Context(), req.Username, req.Password)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrTooManyAttempts):
@@ -81,7 +84,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, loginResponse{Token: token, ExpiresIn: int64(ttl.Seconds())})
+	writeJSON(w, http.StatusOK, loginResponse{
+		Token:     result.Token,
+		ExpiresIn: int64(result.ExpiresIn.Seconds()),
+		User:      newUserResponse(result.User, result.Pegawai),
+	})
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -94,11 +101,16 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "logged out"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out successfully."})
 }
 
-func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, userFrom(r))
+func (h *AuthHandler) User(w http.ResponseWriter, r *http.Request) {
+	user, pegawai := userFrom(r), pegawaiFrom(r)
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": newUserResponse(user, pegawai)})
 }
 
 func bearerToken(r *http.Request) string {
