@@ -9,8 +9,11 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
 
 	"simon-jp-api/internal/config"
+	"simon-jp-api/internal/db"
 )
 
 func main() {
@@ -39,6 +42,12 @@ func main() {
 	switch os.Args[1] {
 	case "up":
 		err = goose.UpContext(ctx, sqlDB, dir)
+		if err != nil {
+			log.Fatalf("goose: %v", err)
+		}
+		if err := db.Seed(ctx, bun.NewDB(sqlDB, pgdialect.New())); err != nil {
+			log.Fatalf("seed: %v", err)
+		}
 	case "down":
 		err = goose.DownContext(ctx, sqlDB, dir)
 	default:
