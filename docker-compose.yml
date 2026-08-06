@@ -31,6 +31,17 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
 
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: simonjp-redis-commander
+    restart: always
+    environment:
+      REDIS_HOSTS: "local:valkey:6379"
+    ports:
+      - "127.0.0.1:8084:8081"
+    depends_on:
+      - valkey
+
   adminer:
     image: adminer:latest
     container_name: simonjp-adminer
