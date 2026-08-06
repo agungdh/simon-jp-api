@@ -9,7 +9,7 @@
 - `internal/service/` — business logic, errors
 - `internal/repository/` — data access (bun queries)
 - `internal/models/` — bun table models
-- `internal/db/` — connection + goose migrations (`migrations/*.sql`)
+- `internal/db/` — connection + goose migrations (`migrations/*.sql` and `*.go`)
 - `internal/mq/`, `internal/worker/`, `internal/scheduler/`, `internal/config/`
 
 ## Commands
@@ -31,7 +31,7 @@ Verify changes with `go build ./... && go vet ./...`.
 
 ## Database conventions
 
-**Never edit an already-applied migration.** Create a new one via `make migrate-create NAME=xxx`. Migration files use goose `-- +goose Up/Down` SQL blocks.
+**Never edit an already-applied migration.** Create a new one via `make migrate-create NAME=xxx`. Migration files can be **either SQL (`.sql` goose blocks) or Go (`.go` calling `goose.AddMigrationContext` in `init()`)**, mixed freely in `internal/db/migrations` — version = numeric file prefix (`00001_...`), all tracked in `goose_db_version`. Use Go migrations when logic is needed (e.g. seed admin: bcrypt password in `00002_seed_admin.go`). Go migrations must live in package `migrations` and are wired in via blank imports (`internal/db/migrate.go`, `cmd/migrate/main.go`).
 
 **Every table** embeds the same audit + public-ID pattern (see `internal/db/migrations/00001_create_users.sql` and `internal/models/base.go`):
 

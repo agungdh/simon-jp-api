@@ -7,9 +7,11 @@ import (
 
 	"github.com/pressly/goose/v3"
 	"github.com/uptrace/bun"
+
+	_ "simon-jp-api/internal/db/migrations"
 )
 
-//go:embed migrations/*.sql
+//go:embed migrations/*
 var migrationsFS embed.FS
 
 func Migrate(ctx context.Context, bunDB *bun.DB) error {

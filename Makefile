@@ -4,14 +4,14 @@ SCHEDULER_BINARY=simon-jp-scheduler
 BUILD_DIR=bin
 MIGRATIONS_DIR=internal/db/migrations
 
-.PHONY: help run run-api run-worker run-scheduler build build-api build-worker build-scheduler build-prod build-api-prod build-worker-prod build-scheduler-prod clean compose-up compose-down compose-clean migrate-up migrate-down migrate-create
+.PHONY: help run run-api run-worker run-scheduler build build-api build-worker build-scheduler build-prod build-api-prod build-worker-prod build-scheduler-prod clean compose-up compose-down compose-clean wait-db migrate-up migrate-down migrate-create
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 .DEFAULT_GOAL := help
 
-run: run-api ## Run the API server
+run: compose-clean compose-up wait-db run-api ## Clean, start services, wait for postgres, and run the API
 
 run-api: ## Run the API server
 	go run ./cmd/api
@@ -55,6 +55,9 @@ compose-down: ## Stop docker compose services
 
 compose-clean: ## Stop docker compose services and remove all volumes
 	docker compose down -v
+
+wait-db: ## Wait until postgres is ready
+	@until docker compose exec -T postgres pg_isready -U admin -d simonjp >/dev/null 2>&1; do sleep 1; done
 
 migrate-up: ## Apply all migrations
 	go run ./cmd/migrate up

@@ -35,10 +35,6 @@ func main() {
 		log.Fatalf("migrate: %v", err)
 	}
 
-	if err := db.Seed(ctx, bunDB); err != nil {
-		log.Fatalf("seed: %v", err)
-	}
-
 	redisClient, err := db.ConnectRedis(ctx, cfg.RedisAddr, cfg.RedisPass, cfg.RedisDB)
 	if err != nil {
 		log.Fatalf("connect redis: %v", err)
