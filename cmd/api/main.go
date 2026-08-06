@@ -14,6 +14,7 @@ import (
 	"simon-jp-api/internal/httpapi"
 	"simon-jp-api/internal/repository"
 	"simon-jp-api/internal/service"
+	"simon-jp-api/internal/storage"
 )
 
 func main() {
@@ -55,6 +56,23 @@ func main() {
 	}
 	defer redisClient.Close()
 
+	s3Client, err := db.ConnectS3(db.S3Config{
+		Endpoint:       cfg.S3Endpoint,
+		Region:         cfg.S3Region,
+		AccessKey:      cfg.S3AccessKey,
+		SecretKey:      cfg.S3SecretKey,
+		UseSSL:         cfg.S3UseSSL,
+		ForcePathStyle: cfg.S3ForcePathStyle,
+	})
+	if err != nil {
+		slog.Error("connect s3", "error", err)
+		os.Exit(1)
+	}
+	if err := db.EnsureBucket(ctx, s3Client, cfg.S3Bucket); err != nil {
+		slog.Error("ensure bucket", "error", err)
+		os.Exit(1)
+	}
+
 	userRepo := repository.NewUserRepository(bunDB)
 	pegawaiRepo := repository.NewPegawaiRepository(bunDB)
 	diklatRepo := repository.NewDiklatRepository(bunDB)
@@ -66,6 +84,7 @@ func main() {
 	sessionStore := service.NewSessionStore(redisClient, cfg.SessionTTL)
 	throttle := service.NewThrottle(redisClient, cfg.LoginMaxAttempt, cfg.LoginLockoutTTL)
 	authService := service.NewAuthService(userRepo, pegawaiRepo, sessionStore, throttle)
+	objectStore := storage.NewS3Store(s3Client, cfg.S3Bucket, cfg.S3PresignTTL)
 
 	deps := httpapi.Deps{
 		Auth:      authService,
@@ -75,7 +94,7 @@ func main() {
 		Ppm:       service.NewPpmService(ppmRepo),
 		Activity:  service.NewActivityService(activityRepo),
 		MateriPpm: service.NewMateriPpmService(materiPpmRepo),
-		Download:  service.NewDownloadService(diklatRepo, activityRepo, cfg.StorageDir),
+		Download:  service.NewDownloadService(diklatRepo, activityRepo, objectStore),
 	}
 
 	srv := &http.Server{

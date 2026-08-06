@@ -29,7 +29,14 @@ type Config struct {
 	MQMaxRetries    int           `env:"MQ_MAX_RETRIES" envDefault:"5"`
 	PingSchedule    string        `env:"PING_SCHEDULE" envDefault:"@every 1m"`
 	JobTimeout      time.Duration `env:"JOB_TIMEOUT" envDefault:"30s"`
-	StorageDir      string        `env:"STORAGE_DIR" envDefault:"./storage"`
+	S3Endpoint      string        `env:"S3_ENDPOINT" envDefault:"http://localhost:9000"`
+	S3Region        string        `env:"S3_REGION" envDefault:"us-east-1"`
+	S3AccessKey     string        `env:"S3_ACCESS_KEY" envDefault:"minioadmin"`
+	S3SecretKey     string        `env:"S3_SECRET_KEY" envDefault:"minioadmin"`
+	S3Bucket        string        `env:"S3_BUCKET" envDefault:"laporan"`
+	S3UseSSL        bool          `env:"S3_USE_SSL" envDefault:"false"`
+	S3ForcePathStyle bool         `env:"S3_FORCE_PATH_STYLE" envDefault:"true"`
+	S3PresignTTL    time.Duration `env:"S3_PRESIGN_TTL" envDefault:"15m"`
 }
 
 func Load() (*Config, error) {

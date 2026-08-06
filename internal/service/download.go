@@ -3,27 +3,23 @@ package service
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"simon-jp-api/internal/repository"
+	"simon-jp-api/internal/storage"
 )
 
 type DownloadResult struct {
-	OriginalName string
-	ContentType  string
-	Path         string
+	URL string
 }
 
 type DownloadService struct {
-	diklat     *repository.DiklatRepository
-	activity   *repository.ActivityRepository
-	storageDir string
+	diklat    *repository.DiklatRepository
+	activity  *repository.ActivityRepository
+	presigner storage.Presigner
 }
 
-func NewDownloadService(diklat *repository.DiklatRepository, activity *repository.ActivityRepository, storageDir string) *DownloadService {
-	return &DownloadService{diklat: diklat, activity: activity, storageDir: storageDir}
+func NewDownloadService(diklat *repository.DiklatRepository, activity *repository.ActivityRepository, presigner storage.Presigner) *DownloadService {
+	return &DownloadService{diklat: diklat, activity: activity, presigner: presigner}
 }
 
 func (s *DownloadService) Resolve(ctx context.Context, module, uuid string, pegawaiID int64) (*DownloadResult, error) {
@@ -110,47 +106,13 @@ func (s *DownloadService) Resolve(ctx context.Context, module, uuid string, pega
 		return nil, ErrNoFileAttached
 	}
 
-	path := filepath.Join(s.storageDir, module, uuid)
-	if _, err := os.Stat(path); err != nil {
-		return nil, ErrFileNotFound
+	url, err := s.presigner.PresignedGetURL(ctx, module+"/"+uuid, *filename)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, ErrFileNotFound
+		}
+		return nil, err
 	}
 
-	return &DownloadResult{
-		OriginalName: *filename,
-		ContentType:  mimeFor(*filename),
-		Path:         path,
-	}, nil
-}
-
-func mimeFor(filename string) string {
-	switch strings.ToLower(filepath.Ext(filename)) {
-	case ".pdf":
-		return "application/pdf"
-	case ".doc":
-		return "application/msword"
-	case ".docx":
-		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	case ".xls":
-		return "application/vnd.ms-excel"
-	case ".xlsx":
-		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-	case ".ppt":
-		return "application/vnd.ms-powerpoint"
-	case ".pptx":
-		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".gif":
-		return "image/gif"
-	case ".txt":
-		return "text/plain"
-	case ".zip":
-		return "application/zip"
-	case ".rar":
-		return "application/x-rar-compressed"
-	default:
-		return "application/octet-stream"
-	}
+	return &DownloadResult{URL: url}, nil
 }

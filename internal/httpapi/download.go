@@ -3,7 +3,6 @@ package httpapi
 import (
 	"errors"
 	"net/http"
-	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 
@@ -45,7 +44,5 @@ func (h *DownloadHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", result.ContentType)
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+filepath.Base(result.OriginalName)+"\"")
-	http.ServeFile(w, r, result.Path)
+	http.Redirect(w, r, result.URL, http.StatusFound)
 }
