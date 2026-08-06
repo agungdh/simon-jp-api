@@ -17,15 +17,17 @@
 ```sh
 make compose-up        # start docker services (postgres, valkey, rabbitmq, adminer)
 make compose-clean     # stop + wipe all volumes (destructive)
-make migrate-up        # apply goose migrations
+make migrate-up        # apply goose migrations (go run ./cmd/migrate, no CLI needed)
 make migrate-down      # rollback last migration
-make migrate-create NAME=xxx   # create new migration file
-make run-api           # run API server
+make migrate-create NAME=xxx   # needs goose CLI on PATH (see below)
+make run-api           # run API server (requires compose-up running)
 make build             # build all binaries
 make build-prod        # build static binaries
 ```
 
 Verify changes with `go build ./... && go vet ./...`.
+
+`make migrate-create` shells out to the `goose` binary — install it once with `go install github.com/pressly/goose/v3/cmd/goose@latest` (goose is already a Go module dep; only the CLI is missing). `migrate-up`/`migrate-down` use `go run ./cmd/migrate` and need no CLI. Run the API only after `make compose-up` (it connects to postgres + valkey and auto-runs migrations on boot).
 
 ## Database conventions
 
